@@ -1,0 +1,750 @@
+{
+  "info": {
+    "name": "Tiimdi v0.7",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Run top-to-bottom (Collection Runner). Default point: Almaty."
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "lat",
+      "value": "43.2352"
+    },
+    {
+      "key": "lon",
+      "value": "76.9094"
+    },
+    {
+      "key": "deal_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('redis connected', () => pm.expect(pm.response.json().redis).to.eql(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Deals nearby (500 m, best)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/deals/nearby?lat={{lat}}&lon={{lon}}&radius=500&sort=best",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals",
+            "nearby"
+          ],
+          "query": [
+            {
+              "key": "lat",
+              "value": "{{lat}}"
+            },
+            {
+              "key": "lon",
+              "value": "{{lon}}"
+            },
+            {
+              "key": "radius",
+              "value": "500"
+            },
+            {
+              "key": "sort",
+              "value": "best"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('has items', () => pm.expect(j.items.length).to.be.above(0));",
+              "pm.test('all within radius', () => j.items.forEach(i => pm.expect(i.distance_m).to.be.below(501)));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Deals nearby again (Redis cache hit)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/deals/nearby?lat={{lat}}&lon={{lon}}&radius=500&sort=best",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals",
+            "nearby"
+          ],
+          "query": [
+            {
+              "key": "lat",
+              "value": "{{lat}}"
+            },
+            {
+              "key": "lon",
+              "value": "{{lon}}"
+            },
+            {
+              "key": "radius",
+              "value": "500"
+            },
+            {
+              "key": "sort",
+              "value": "best"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('served from cache', () => pm.expect(pm.response.json().cached).to.eql(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Cheap lunch up to 800 ₸, sorted by price",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/deals/nearby?lat={{lat}}&lon={{lon}}&radius=1500&max_price=800&sort=price",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals",
+            "nearby"
+          ],
+          "query": [
+            {
+              "key": "lat",
+              "value": "{{lat}}"
+            },
+            {
+              "key": "lon",
+              "value": "{{lon}}"
+            },
+            {
+              "key": "radius",
+              "value": "1500"
+            },
+            {
+              "key": "max_price",
+              "value": "800"
+            },
+            {
+              "key": "sort",
+              "value": "price"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const p = pm.response.json().items.map(i => i.price);",
+              "pm.test('prices <= 800', () => p.forEach(x => pm.expect(x).to.be.below(801)));",
+              "pm.test('sorted asc', () => pm.expect(p).to.eql([...p].sort((a,b)=>a-b)));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Trending nearby",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/deals/trending?lat={{lat}}&lon={{lon}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals",
+            "trending"
+          ],
+          "query": [
+            {
+              "key": "lat",
+              "value": "{{lat}}"
+            },
+            {
+              "key": "lon",
+              "value": "{{lon}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. Recommend for 1200 ₸ budget",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/recommend?lat={{lat}}&lon={{lon}}&budget=1200",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "recommend"
+          ],
+          "query": [
+            {
+              "key": "lat",
+              "value": "{{lat}}"
+            },
+            {
+              "key": "lon",
+              "value": "{{lon}}"
+            },
+            {
+              "key": "budget",
+              "value": "1200"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('has advice text', () => pm.expect(pm.response.json().advice).to.be.a('string'));",
+              "pm.test('advice_source present', () => pm.expect(['ai','rules']).to.include(pm.response.json().advice_source));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Venues nearby",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/venues/nearby?lat={{lat}}&lon={{lon}}&radius=700",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "venues",
+            "nearby"
+          ],
+          "query": [
+            {
+              "key": "lat",
+              "value": "{{lat}}"
+            },
+            {
+              "key": "lon",
+              "value": "{{lon}}"
+            },
+            {
+              "key": "radius",
+              "value": "700"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "8. Venue adds a deal",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/deals",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"venue_id\": 3,\n  \"title\": \"Демо-акция: кофе за 300\",\n  \"price\": 300,\n  \"old_price\": 700,\n  \"description\": \"Только сегодня\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('deal_id', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Deal appears in nearby (cache invalidated)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/deals/nearby?lat={{lat}}&lon={{lon}}&radius=500&max_price=300",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals",
+            "nearby"
+          ],
+          "query": [
+            {
+              "key": "lat",
+              "value": "{{lat}}"
+            },
+            {
+              "key": "lon",
+              "value": "{{lon}}"
+            },
+            {
+              "key": "radius",
+              "value": "500"
+            },
+            {
+              "key": "max_price",
+              "value": "300"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.test('not stale', () => pm.expect(j.cached).to.eql(false));",
+              "pm.test('new deal visible', () => pm.expect(j.items.some(i => i.id == pm.collectionVariables.get('deal_id'))).to.eql(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Upvote the new deal",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/deals/{{deal_id}}/upvote",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals",
+            "{{deal_id}}",
+            "upvote"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 or 409 on rerun', () => pm.expect([200, 409]).to.include(pm.response.code));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Validation: old_price < price → 422",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/deals",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"venue_id\": 3,\n  \"title\": \"Плохая акция\",\n  \"price\": 900,\n  \"old_price\": 100\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('422', () => pm.response.to.have.status(422));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Unknown venue → 404",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/deals",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"venue_id\": 9999,\n  \"title\": \"Нет заведения\",\n  \"price\": 100\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. New venue (cold start)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/venues",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "venues"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Домашняя кухня Айгуль\",\n  \"category\": \"cafe\",\n  \"address\": \"ул. Манаса 36\",\n  \"lat\": 43.2349,\n  \"lon\": 76.9101\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. AI status (provider, fallback, limits)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/ai/status",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "ai",
+            "status"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('provider and flags', () => { pm.expect(j.provider).to.be.a('string'); pm.expect(j.configured).to.be.a('boolean'); pm.expect(j.available).to.be.a('boolean'); });",
+              "pm.test('list of providers', () => pm.expect(j.providers).to.be.an('array').that.is.not.empty);",
+              "pm.test('no secrets in response', () => pm.expect(pm.response.text()).to.not.match(/api_key|secret|Bearer/i));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15. Recommend with AI (falls back to rules)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/recommend?lat={{lat}}&lon={{lon}}&budget=1200&ai=true",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "recommend"
+          ],
+          "query": [
+            {
+              "key": "lat",
+              "value": "{{lat}}"
+            },
+            {
+              "key": "lon",
+              "value": "{{lon}}"
+            },
+            {
+              "key": "budget",
+              "value": "1200"
+            },
+            {
+              "key": "ai",
+              "value": "true"
+            }
+          ]
+        },
+        "description": "Если ИИ выключен, недоступен или исчерпан лимит, ответ всё равно 200, а advice_source = rules."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('advice is text', () => pm.expect(j.advice).to.be.a('string').and.not.empty);",
+              "pm.test('source is ai or rules', () => pm.expect(['ai', 'rules']).to.include(j.advice_source));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16. Save menu for a venue",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/venues/3/menu",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "venues",
+            "3",
+            "menu"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"items\": [\n    {\n      \"name\": \"Борщ\",\n      \"price\": 900,\n      \"category\": \"soup\"\n    },\n    {\n      \"name\": \"Чай\",\n      \"price\": 250,\n      \"category\": \"drink\"\n    }\n  ],\n  \"replace\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "pm.test('saved 2', () => pm.expect(pm.response.json().saved).to.eql(2));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17. Get venue menu",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/venues/3/menu",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "venues",
+            "3",
+            "menu"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('has 2 items', () => pm.expect(pm.response.json().count).to.eql(2));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18. Validation: deal ending in the past → 422",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/deals",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "deals"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"venue_id\": 3,\n  \"title\": \"Акция из прошлого\",\n  \"price\": 300,\n  \"ends_at\": \"2020-01-01T00:00:00Z\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('422', () => pm.response.to.have.status(422));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19. Menu from photo (ручной: выберите файл)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/menu/extract",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "menu",
+            "extract"
+          ]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": []
+            }
+          ]
+        },
+        "description": "В Body → file выберите фото меню (JPEG/PNG/WebP до 5 МБ). Без файла вернётся 422 — это нормально."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 with photo, 422 without', () => pm.expect([200, 422]).to.include(pm.response.code));",
+              "if (pm.response.code === 200) pm.test('items found', () => pm.expect(pm.response.json().items).to.be.an('array').that.is.not.empty);"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

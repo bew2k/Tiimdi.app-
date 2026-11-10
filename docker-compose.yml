@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: tiimdi
+      POSTGRES_PASSWORD: tiimdi
+      POSTGRES_DB: tiimdi
+    # Порты БД и Redis наружу НЕ публикуем: API ходит к ним по внутренней сети Docker.
+    # (Для psql с хоста раскомментируйте, но на сервере в интернете этого делать нельзя.)
+    # ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1 обязателен: при первом старте Postgres сначала поднимает временный сервер
+      # только на unix-сокете. Без -h проверка проходила рано, и API падал с "Connection refused".
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U tiimdi -d tiimdi"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    # ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    restart: on-failure
+    environment:
+      DATABASE_URL: postgresql://tiimdi:tiimdi@db:5432/tiimdi
+      REDIS_URL: redis://redis:6379/0
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT: ${AI_TIMEOUT:-45}
+      AI_TEXT_TIMEOUT: ${AI_TEXT_TIMEOUT:-8}
+      AI_DAILY_LIMIT: ${AI_DAILY_LIMIT:-200}
+      AI_FALLBACK_BASE_URL: ${AI_FALLBACK_BASE_URL:-}
+      AI_FALLBACK_API_KEY: ${AI_FALLBACK_API_KEY:-}
+      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-}
+      AI_FALLBACK_VISION: ${AI_FALLBACK_VISION:-0}
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes:
+      - ./data:/srv/data:ro
+
+volumes:
+  pgdata:
