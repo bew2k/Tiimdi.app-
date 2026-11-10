@@ -30,7 +30,7 @@ API documentation (Swagger):
 
 **Showcase version:** the real venue dataset, photos and one-click launchers are intentionally not included, so the repo is for reading, not a turnkey demo. Fill `data/*.csv` with your own data to run it: `docker compose up --build`, then http://localhost:8000 (Swagger: `/docs`).
 
-**Authors:** Bek Kadyrbekov ([@Bew2k](https://github.com/Bew2k)) and Zholdas Bekasyl ([@bekassyl08](https://github.com/bekassyl08)).
+**Authors:** Bek Kadyrbekov ([@Bew2k](https://github.com/Bew2k)) and Zholdas Bekassyl ([@bekassyl08](https://github.com/bekassyl08)).
 **License:** [PolyForm Noncommercial 1.0.0](LICENSE). Viewing and noncommercial use are allowed; commercial use requires the authors' written permission.
 
 ## API endpoints
