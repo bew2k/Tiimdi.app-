@@ -33,99 +33,89 @@ API documentation (Swagger):
 **Authors:** Bek Kadyrbekov ([@Bew2k](https://github.com/Bew2k)) and Zholdas Bekasyl ([@bekassyl08](https://github.com/bekassyl08)).
 **License:** [PolyForm Noncommercial 1.0.0](LICENSE). Viewing and noncommercial use are allowed; commercial use requires the authors' written permission.
 
-Documentation below is in Russian.
+## API endpoints
 
-## Эндпоинты
-
-| Метод | URL | Что делает |
+| Method | URL | Description |
 |---|---|---|
-| GET | `/deals/nearby?lat&lon&radius&category&max_price&sort&limit` | акции в радиусе (PostGIS `ST_DWithin`), sort = best / price / distance / discount |
-| GET | `/deals/trending?lat&lon` | «Trending nearby» — топ по рейтингу выгоды |
-| GET | `/recommend?lat&lon&budget&ai=true` | совет «что взять за бюджет»: по правилам, с `ai=true` объяснение от ИИ (поле `advice_source` = `ai` или `rules`) |
-| GET | `/deals/{id}` · `/venues/nearby` | карточка акции · заведения в радиусе |
-| POST | `/venues` | заведение регистрируется |
-| POST | `/deals` | заведение добавляет акцию (лимит 10/мин на клиента, Redis) |
-| POST | `/deals/{id}/upvote` | подтвердить цену (1 раз в сутки с клиента, Redis) |
-| POST | `/menu/extract` | фото меню → список позиций (ничего не сохраняет; 5 запросов/мин, до 5 МБ) |
-| POST/GET | `/venues/{id}/menu` | сохранить / получить меню заведения |
-| GET/POST | `/venues/{id}/reviews` | отзывы заведения (оценка 1–5, лимит 5/мин) |
-| POST | `/business-requests` | заявка заведения на проверку (лимит 3/час) |
-| GET | `/health` · `/ai/status` | статус API, Redis и ИИ (провайдер, сбой, расход за сутки) |
+| GET | `/deals/nearby?lat&lon&radius&category&max_price&sort&limit` | Deals within a radius (PostGIS `ST_DWithin`); sort = best / price / distance / discount |
+| GET | `/deals/trending?lat&lon` | "Trending nearby": top deals by value score |
+| GET | `/recommend?lat&lon&budget&ai=true` | "What to get for my budget" advice: rule-based, or an AI explanation with `ai=true` (`advice_source` = `ai` or `rules`) |
+| GET | `/deals/{id}` · `/venues/nearby` | Deal details · venues within a radius |
+| POST | `/venues` | Register a venue |
+| POST | `/deals` | Venue adds a deal (10/min per client, Redis) |
+| POST | `/deals/{id}/upvote` | Confirm a price (once per day per client, Redis) |
+| POST | `/menu/extract` | Menu photo to item list (stores nothing; 5 requests/min, up to 5 MB) |
+| POST/GET | `/venues/{id}/menu` | Save / get a venue menu |
+| GET/POST | `/venues/{id}/reviews` | Venue reviews (rating 1-5, 5/min limit, profanity filter) |
+| POST | `/business-requests` | Venue verification request (3/hour limit) |
+| GET | `/health` · `/ai/status` | API, Redis and AI status (provider, failures, daily usage) |
 
-## Поток запроса: поиск и рекомендация
+Interactive docs: `/docs` (Swagger UI).
 
-1. Клиент → `GET /deals/nearby (lat, lon, radius)`
-2. API → Redis: есть кеш? если да — отдаём сразу (`"cached": true`)
-3. Нет → PostGIS: `ST_DWithin` по GiST-индексу (R-Tree) + `ST_Distance` в метрах
-4. API ранжирует: `score = 0.35·скидка + 0.25·дешевизна + 0.25·близость + 0.15·апвоуты` (`app/ranking.py`)
-5. Любая запись (`POST`) сбрасывает кеш (версия ключа в Redis увеличивается)
+## Request flow: search and recommendation
 
-## ИИ и что будет, если он недоступен
+1. Client calls `GET /deals/nearby (lat, lon, radius)`
+2. API checks Redis; on a hit the cached response is returned (`"cached": true`)
+3. On a miss, PostGIS runs `ST_DWithin` on a GiST index (R-tree) plus `ST_Distance` in meters
+4. The API ranks results: `score = 0.35·discount + 0.25·cheapness + 0.25·proximity + 0.15·upvotes` (`app/ranking.py`)
+5. Any write (`POST`) invalidates the cache (the key version in Redis is incremented)
 
-ИИ **не выбирает** акции: выбор и сортировку делает формула в `app/ranking.py`. ИИ только объясняет
-готовый топ-3 (`/recommend?ai=true`) и читает фото меню (`/menu/extract`). Ответ модели считается
-недоверенным: он проверяется схемой (Pydantic), мусорные позиции отбрасываются, названия акций в
-промпте помечены как данные, а не инструкции.
+## AI and what happens when it is unavailable
 
-Настройка: `AI_PROVIDER=mock` (по умолчанию, без ключей) или `openai_compat` (Gemini, OpenRouter, Groq, Ollama...).
-Подробности и примеры: `.env.example`. Проверка связи: `docker compose exec api python -m app.ai [фото.jpg]`.
+The AI does **not** choose deals: selection and sorting are done by the formula in `app/ranking.py`. The AI only explains the ready top-3 (`/recommend?ai=true`) and reads menu photos (`/menu/extract`). Model output is treated as untrusted: it is validated against a schema (Pydantic), junk items are dropped, and deal titles are marked as data, not instructions, in the prompt.
 
-| Ситуация | Что делает система |
+Configuration: `AI_PROVIDER=mock` (default, no keys needed) or `openai_compat` (Gemini, OpenRouter, Groq, Ollama, ...). See `.env.example`. Connectivity check: `docker compose exec api python -m app.ai [photo.jpg]`.
+
+| Situation | System behavior |
 |---|---|
-| Закончились токены / лимит (HTTP 429) | провайдер отключается на время из `Retry-After` (по умолчанию 5 мин), используется запасной провайдер, если он настроен; иначе совет по правилам |
-| ИИ не ответил за `AI_TEXT_TIMEOUT` (8 с) или нет связи | то же; отключение на 2 мин, чтобы следующие запросы не ждали таймаут |
-| Неверный ключ (401/403) / сбой сервера (5xx) | отключение на 15 мин / 1 мин, `/ai/status` показывает причину |
-| Исчерпан собственный потолок `AI_DAILY_LIMIT` | ИИ не вызывается до следующих суток (UTC), счётчик в Redis |
-| Повторный запрос с теми же данными | ответ берётся из Redis (совет 10 мин, меню 24 ч), токены не тратятся |
-| Redis недоступен | кеш и лимиты отключаются на 10 с, API работает; дневной лимит считается в памяти процесса |
-| ИИ недоступен совсем | `/recommend` отдаёт совет по правилам (`advice_source: "rules"`), для меню — ошибка с понятным текстом и ручной ввод позиций |
+| Out of tokens / rate limit (HTTP 429) | Provider is disabled for the `Retry-After` time (5 min by default); the fallback provider is used if configured, otherwise rule-based advice |
+| No answer within `AI_TEXT_TIMEOUT` (8 s) or no connection | Same; disabled for 2 min so following requests do not wait for the timeout |
+| Invalid key (401/403) / server error (5xx) | Disabled for 15 min / 1 min; `/ai/status` shows the reason |
+| Own `AI_DAILY_LIMIT` ceiling reached | AI is not called until the next day (UTC); the counter lives in Redis |
+| Repeated request with the same input | Answered from Redis (advice 10 min, menu 24 h), no tokens spent |
+| Redis unavailable | Cache and limits are disabled for 10 s, the API keeps working; the daily limit is counted in process memory |
+| AI fully unavailable | `/recommend` returns rule-based advice (`advice_source: "rules"`); menu extraction returns a clear error and manual entry stays possible |
 
-## Тесты
+## Tests
 
 ```bash
 docker compose exec api python -m unittest discover -s tests -v
 ```
-Файлы `tests/test_ranking.py`, `test_guard.py`, `test_ai.py`: формула ранжирования, выключатель, дневной лимит и все сценарии отказа ИИ (без сети и без ключей).
-Postman: импортируйте `postman/tiimdi.postman_collection.json` → Collection Runner → Run
-(`base_url` = `http://localhost:8000`; запрос №19 с фото запускается вручную).
+`tests/test_ranking.py`, `test_guard.py`, `test_ai.py`, `test_profanity.py` cover the ranking formula, the circuit breaker, the daily quota, all AI failure scenarios (no network, no keys needed) and the review filter.
+Postman: import `postman/tiimdi.postman_collection.json`, then Collection Runner → Run (`base_url` = `http://localhost:8000`; request #19 with a photo is run manually).
 
-## Интерфейс
+## Interface
 
-Вкладки: Карта, Рядом (карточки с обложками), Избранное (завершённые акции серые, исчезают через 3 дня), Кабинет
-(только для ролей Бизнес/Модератор/Админ), Профиль (уровни, достижения, настройки).
-Карточка заведения: обложка, рейтинг, маршрут, акции, меню.
-Поиск с автокоррекцией: опечатки («донр» → донер), синонимы (шаверма = шаурма), неверная раскладка («ljyth» → донер).
-Настройки: язык (русский, қазақша, English), размер текста, инверсия цветов, режим без цветов, отключение анимаций.
-Карточка заведения с вкладками «Акции, Меню, Отзывы, Контакты» (отзывы можно оставлять). Нажми на логотип tiimdi: шутка держится 5 секунд.
-Первый запуск: выбор роли «студент / школьник / пользователь / заведение»; роли модератора и админа выбрать нельзя. Вкладка «Настройки»: сверху профиль (по нажатию открывается), прогресс по нажатию открывает достижения. Карта: вдали плоская, при приближении 3D; границы: Алматы и пригороды.
-Параметр `?debug` в адресе включает выбор роли в «Редактировать профиль».
-Продуктовые решения и роли: `docs/PRODUCT.md`.
+- Tabs: Map, Nearby (cards), Saved (finished deals turn grey and disappear after 3 days), Studio (venue roles only), Settings (profile, levels, achievements).
+- Venue page with tabs: Deals, Menu, Reviews, Contacts; reviews can be left by users.
+- Search with autocorrection: typos, synonyms, wrong keyboard layout.
+- Settings: language (Russian, Kazakh, English), text size, inverted colors, grayscale mode, reduced motion, light/dark/auto theme.
+- Map: flat from afar, 3D buildings on zoom; bounded to Almaty and its surroundings.
+- First launch: role selection (student / school student / user / venue); moderator and admin roles cannot be selected. The `?debug` URL parameter enables role switching for development.
+- Product decisions and roles: `docs/PRODUCT.md`.
 
-## Структура
+## Structure
 
 ```
-app/        main.py (API) · ai.py (ИИ-провайдеры) · guard.py (выключатель, дневной лимит) · cache.py (Redis)
-            db.py (PostGIS, сид из CSV) · ranking.py (формула) · config.py · schema.sql
-static/     index.html (всё приложение в одном файле)
-data/       venues.csv, deals.csv, menu.csv (только заголовки)      tests/   unittest      postman/   коллекция запросов
+app/        main.py (API) · ai.py (AI providers) · guard.py (circuit breaker, daily quota) · cache.py (Redis)
+            db.py (PostGIS, CSV seeding) · ranking.py (formula) · config.py · schema.sql
+static/     index.html (the whole frontend in one file)
+data/       venues.csv, deals.csv, menu.csv (headers only)      tests/   unittest      postman/   request collection
 ```
 
-## Безопасность и ограничения
+## Security and limitations
 
-Учётные данные БД в `docker-compose.yml` и CORS `*` рассчитаны на локальную разработку и перед публичным деплоем меняются.
+DB credentials in `docker-compose.yml` and CORS `*` are meant for local development and must be changed before any public deployment.
 
+- Most of the UI is in three languages; the studio (venue dashboard) and some dialogs are Russian only.
+- Venue photos: the `venues.photo_url` column exists, uploading is not implemented yet (a colored cover with an icon is shown without a photo).
+- **Login and roles exist only in the UI:** role and points are stored in the browser's `localStorage`, and `POST /deals`, `/venues`, `/venues/{id}/menu` are open to everyone on the server. Server-side auth (JWT, roles) is the next step.
+- Points are calculated by the browser, not the server, so they reset when the device changes.
+- A venue menu is shown on the venue page but does not affect ranking.
+- The DB schema uses `CREATE IF NOT EXISTS` without migrations: after table changes, run `docker compose down -v` (until Alembic is added).
+- If Redis is unavailable, the "1 upvote per day" limit does not apply.
+- Local Ollama on CPU is slow: set `AI_TIMEOUT=180` and `AI_TEXT_TIMEOUT=30`.
 
-- Перевод интерфейса: основная часть на трёх языках; кабинет и диалоги пока только на русском.
-- Фото заведений: колонка `venues.photo_url` есть, загрузки пока нет (без фото показывается яркая обложка с иконкой).
-- **Вход и роли пока только в интерфейсе:** роль и баллы хранятся в `localStorage` браузера, а `POST /deals`,
-  `/venues`, `/venues/{id}/menu` на сервере открыты всем. Серверная авторизация (JWT, роли) — следующий шаг.
-- Баллы считает браузер, а не сервер, поэтому при смене устройства они сбрасываются.
-- Меню заведения показывается в карточке, но не влияет на ранжирование.
-- Схема БД создаётся через `CREATE IF NOT EXISTS`, без миграций: после изменения таблиц нужен `docker compose down -v` (до Alembic).
-- Если Redis недоступен, лимит «1 апвоут в сутки» не действует.
-- Локальный Ollama на CPU медленный: поставьте `AI_TIMEOUT=180` и `AI_TEXT_TIMEOUT=30`.
+## Roadmap
 
-## Что мок и что дальше
-
-- **Пока нет:** серверная авторизация/роли, модерация (поле `status` в `deals` уже есть), пеший маршрут, ML-ранжирование.
-- **Дальше:** JWT и роли, модерация, репутация на сервере (Redis Sorted Set), подписки, ML-ранжирование, тесты в CI, деплой.
+JWT auth and roles, moderation (the `status` field in `deals` already exists), server-side reputation (Redis sorted set), subscriptions, ML ranking, CI, deployment.

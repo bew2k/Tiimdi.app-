@@ -13,8 +13,8 @@ pool: asyncpg.Pool | None = None
 
 
 async def init_db(retries: int = 30, delay: float = 2.0) -> None:
-    """Подключается к БД с повторами: при первом запуске Postgres ещё инициализируется
-    и сначала отвечает «connection refused» или «starting up»."""
+    """Connects to the DB with retries: on first start Postgres is still initializing
+    and at first answers "connection refused" or "starting up"."""
     global pool
     for attempt in range(1, retries + 1):
         try:
@@ -33,7 +33,7 @@ async def init_db(retries: int = 30, delay: float = 2.0) -> None:
 
 
 async def hide_bad_reviews(con: asyncpg.Connection) -> None:
-    """Отзывы, оставленные до появления фильтра, проверяются при старте: плохие скрываются."""
+    """Reviews left before the filter existed are re-checked at startup: bad ones are hidden."""
     from .profanity import has_profanity
     rows = await con.fetch("SELECT id, author, body FROM reviews WHERE status='visible'")
     bad = [r["id"] for r in rows if has_profanity(r["body"]) or has_profanity(r["author"])]
@@ -48,8 +48,8 @@ async def close_db() -> None:
 
 
 async def seed_if_empty(con: asyncpg.Connection) -> None:
-    """Мок-данные из CSV. CSV считается источником правды для заведений с id из файла (можно править и
-    перезапускать); заведения, созданные через API, получают id больше и не трогаются."""
+    """Mock data from CSV. The CSV is the source of truth for venues with ids from the file (you can edit it and
+    restart); venues created via the API get larger ids and are left untouched."""
     with open(os.path.join(DATA_DIR, "venues.csv"), encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     demo_path = os.path.join(DATA_DIR, "demo", "venues.csv")
@@ -59,7 +59,7 @@ async def seed_if_empty(con: asyncpg.Connection) -> None:
             demo_rows = list(csv.DictReader(f))
     if SHOW_DEMO_DATA:
         rows = demo_rows + rows
-    else:   # вымышленные заведения убираем и из уже существующей базы
+    else:   # fictional venues are also removed from an already existing database
         await con.execute("DELETE FROM venues WHERE id = ANY($1::int[])", [int(r["id"]) for r in demo_rows])
     new_ids = set()
     for r in rows:
@@ -76,7 +76,7 @@ async def seed_if_empty(con: asyncpg.Connection) -> None:
         if ins:
             new_ids.add(int(r["id"]))
     await con.execute("SELECT setval('venues_id_seq', (SELECT max(id) FROM venues))")
-    # исходный рейтинг берём из CSV, затем накладываем отзывы
+    # take the base rating from the CSV, then apply reviews on top
     await con.execute("UPDATE venues SET base_rating = rating WHERE id = ANY($1::int[])", [int(r["id"]) for r in rows])
     await con.execute("UPDATE venues SET base_rating = rating WHERE base_rating IS NULL")
     await recompute_rating(con, None)
@@ -100,7 +100,7 @@ async def seed_if_empty(con: asyncpg.Connection) -> None:
                     int(r["old_price"]) if r["old_price"] else None, r["description"], int(r["upvotes"]))
     menu_path = os.path.join(DATA_DIR, "menu.csv")
     if os.path.exists(menu_path):
-        # menu.csv - источник правды для заведений, которые в нём перечислены: их меню обновляется при каждом старте
+        # menu.csv is the source of truth for the venues listed in it: their menu is refreshed on every start
         with open(menu_path, encoding="utf-8") as f:
             menu_rows = list(csv.DictReader(f))
         ids = sorted({int(r["venue_id"]) for r in menu_rows})
@@ -185,7 +185,7 @@ async def upvote(deal_id: int) -> int | None:
 
 
 async def save_menu(venue_id: int, items: list[tuple], replace: bool) -> int | None:
-    """items: [(name, price, category), ...]. None если заведения нет."""
+    """items: [(name, price, category), ...]. None if the venue does not exist."""
     async with pool.acquire() as con:
         if not await con.fetchval("SELECT 1 FROM venues WHERE id=$1", venue_id):
             return None
@@ -205,11 +205,11 @@ async def get_menu(venue_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-RATING_PRIOR = 5   # «вес» исходного рейтинга: столько отзывов нужно, чтобы отзывы пересилили его наполовину
+RATING_PRIOR = 5   # "weight" of the base rating: this many reviews are needed for reviews to outweigh it by half
 
 
 async def recompute_rating(con: asyncpg.Connection, venue_id: int | None) -> None:
-    """Итоговый рейтинг = (5·исходный + сумма оценок) / (5 + число оценок). Один отзыв сдвигает рейтинг слабо."""
+    """Final rating = (5·base + sum of scores) / (5 + number of scores). A single review shifts the rating only slightly."""
     await con.execute(
         """UPDATE venues v SET rating = ROUND(
                ($2::numeric * COALESCE(v.base_rating, v.rating)
@@ -232,7 +232,7 @@ async def get_reviews(venue_id: int, limit: int = 50) -> dict:
 
 
 async def create_review(venue_id: int, author: str, rating: int, body: str, author_key: str) -> dict | None:
-    """Один отзыв на заведение с одного устройства: повторная отправка обновляет прежний. Поле updated = True."""
+    """One review per venue per device: resubmitting updates the previous one. Field updated = True."""
     async with pool.acquire() as con:
         if not await con.fetchval("SELECT 1 FROM venues WHERE id=$1", venue_id):
             return None

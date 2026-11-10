@@ -1,8 +1,8 @@
-"""Защита от сбоев внешнего ИИ. Только стандартная библиотека, поэтому легко тестируется.
+"""Protection against external AI failures. Standard library only, so it is easy to test.
 
-Breaker    - «выключатель»: после сбоя на время перестаём ходить к ИИ и сразу отдаём запасной вариант
-             (не ждём таймаут на каждом запросе).
-DailyQuota - дневной потолок вызовов, чтобы не выбить бесплатный лимит и не потратить токены.
+Breaker    - circuit breaker: after a failure we stop calling the AI for a while and return the fallback
+             right away (no timeout wait on every request).
+DailyQuota - daily call cap, so we do not exhaust the free quota or waste tokens.
 """
 import math
 import time
@@ -16,14 +16,14 @@ class Breaker:
         self.reason = ""
 
     def trip(self, seconds: float, reason: str = "") -> None:
-        """Отключить на `seconds`. Более короткое отключение не сокращает уже действующее."""
+        """Disable for `seconds`. A shorter disable does not shorten one already in effect."""
         until = self._clock() + seconds
         if until > self._until:
             self._until, self.reason = until, reason
 
     @property
     def remaining(self) -> int:
-        """Сколько секунд ещё отключено (0 = работает)."""
+        """How many seconds remain disabled (0 = working)."""
         return max(0, math.ceil(self._until - self._clock()))
 
     @property
@@ -35,10 +35,10 @@ class Breaker:
 
 
 class DailyQuota:
-    """Счётчик вызовов за сутки (UTC). Хранится в Redis (если он есть), иначе в памяти процесса.
+    """Per-day call counter (UTC). Stored in Redis if available, otherwise in process memory.
 
-    incr(key, ttl) -> int | None   увеличить счётчик; None, если Redis недоступен
-    get(key)       -> int | None   прочитать счётчик; None, если Redis недоступен
+    incr(key, ttl) -> int | None   increment the counter; None if Redis is unavailable
+    get(key)       -> int | None   read the counter; None if Redis is unavailable
     """
 
     def __init__(self, name: str, limit: int, incr=None, get=None, today=None):
@@ -51,7 +51,7 @@ class DailyQuota:
         return f"ai:quota:{self.name}:{self._today()}"
 
     async def take(self) -> bool:
-        """Занять один вызов. False, если дневной лимит уже исчерпан. limit<=0 - без лимита."""
+        """Claim one call. False if the daily limit is already exhausted. limit<=0 means no limit."""
         if self.limit <= 0:
             return True
         n = None
@@ -60,7 +60,7 @@ class DailyQuota:
                 n = await self._incr(self._key(), 90000)
             except Exception:
                 n = None
-        if n is None:                                   # Redis недоступен -> считаем в памяти
+        if n is None:                                   # Redis unavailable -> count in memory
             day = self._today()
             if day != self._mem_day:
                 self._mem_day, self._mem_n = day, 0

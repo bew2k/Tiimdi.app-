@@ -1,6 +1,6 @@
-"""Тесты выключателя и дневного лимита (только стандартная библиотека).
+"""Tests for the circuit breaker and daily limit (standard library only).
 
-Запуск из корня проекта:  python -m unittest discover -s tests -v
+Run from the project root:  python -m unittest discover -s tests -v
 """
 import unittest
 

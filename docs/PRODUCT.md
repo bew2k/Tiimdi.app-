@@ -1,34 +1,34 @@
 # Tiimdi: product notes, roles, rules
 
-## Для кого (порядок важности)
-1. **Студент / обычный пользователь:** карта, акции рядом, поиск, избранное, подтверждение цен, баллы.
-2. **Бизнес (заведение):** кабинет, свои акции, меню по фото, аналитика (просмотры, маршруты), подписка Free/Pro.
-3. **Модератор:** проверяет новые заведения, меню и акции, разбирает жалобы на отзывы и акции.
-4. **Админ:** назначает модераторов, видит состояние системы.
+## Audience (by priority)
+1. **Student / regular user:** map, nearby deals, search, saved deals, price confirmation, points.
+2. **Business (venue):** dashboard, own deals, menu from a photo, analytics (views, routes), Free/Pro subscription.
+3. **Moderator:** reviews new venues, menus and deals, handles complaints about reviews and deals.
+4. **Admin:** assigns moderators, sees system health.
 
-## Правила
-- **Избранное и завершённые акции:** акция остаётся в избранном, но серая, с плашкой «Акция закончилась» и подсказкой «Следите за новостями». Через 3 дня после окончания исчезает сама; можно убрать вручную (кнопка «Убрать завершённые»). Реализовано в интерфейсе.
-- **Откуда заведения:** два источника. (1) Заведение само регистрируется, модератор подтверждает (есть ли оно, соответствует ли меню). (2) Первичное наполнение из открытых данных OpenStreetMap (лицензия ODbL, нужна ссылка на источник): заведения Алматы и пригородов.
-- **Фото:** в БД есть колонка `venues.photo_url`; если фото есть, оно показывается на карточке, иначе яркая обложка с иконкой. Загрузку фото добавим вместе с кабинетом бизнеса (нужен вход).
-- **Модерация:** у акций уже есть `deals.status` (active / moderation / rejected). Новые акции новых заведений сначала в `moderation` (планируется).
-- **Баллы:** сейчас считаются в браузере. Дальше переносим на сервер (таблица начислений + Redis Sorted Set для рейтинга).
+## Rules
+- **Saved and finished deals:** a finished deal stays in "Saved" but turns grey with an "Offer ended" badge. It disappears automatically 3 days after ending, or can be removed manually. Implemented in the UI.
+- **Where venues come from:** (1) a venue registers itself and a moderator confirms it; (2) initial data from open sources such as OpenStreetMap (ODbL license, attribution required).
+- **Photos:** the `venues.photo_url` column exists; if there is a photo it is shown on the card, otherwise a colored cover with an icon. Photo upload comes with the business dashboard (requires login).
+- **Moderation:** deals already have `deals.status` (active / moderation / rejected). New deals from new venues will start in `moderation` (planned).
+- **Points:** currently calculated in the browser; to be moved to the server (a ledger table plus a Redis sorted set for the leaderboard).
 
-## Карта
-Ограничена Алматы и пригородами (Каскелен, Талгар и т.д.): `maxBounds` в `static/index.html`. Вдали плоская карта, при приближении (zoom 16+) плавно включается 3D, как в 2ГИС.
+## Map
+Restricted to Almaty and its surroundings via `maxBounds` in `static/index.html`. Flat from afar, 3D buildings from zoom 16.
 
-## Следующие шаги
-1. Серверный вход (JWT) и роли, владелец заведения.
-2. Перенос баллов и избранного в БД.
-3. Очередь модерации и жалобы.
-4. Загрузка фото заведений, показ меню (уже показывается в карточке заведения).
-5. Подписки, аналитика, ML-ранжирование, деплой.
+## Next steps
+1. Server-side login (JWT), roles, venue owner.
+2. Move points and saved deals to the database.
+3. Moderation queue and complaints.
+4. Venue photo upload.
+5. Subscriptions, analytics, ML ranking, deployment.
 
-## Как выбирается роль и почему школьник не станет модератором
-- При первом запуске пользователь выбирает только: **студент, школьник, просто пользователь** или **«я представляю заведение»**. Пол по желанию.
-- **Модератор и админ в выборе отсутствуют.** Их аккаунты создаёт только админ (приглашение или запись в БД), вход по паролю (JWT), позже 2FA. Сервер никогда не принимает роль от клиента: роль берётся из токена.
-- **Бизнес:** заявка (название, адрес, телефон) уходит в таблицу `business_requests` со статусом `pending` (лимит 3 заявки в час с одного адреса). Модератор проверяет, что заведение существует, и выдаёт роль. До этого человек остаётся обычным пользователем.
-- **Защита от DDoS и накруток:** лимиты запросов в Redis (уже есть на акции, меню, отзывы, заявки), при выкладке перед приложением ставим Cloudflare (бесплатный план) и HTTPS-прокси.
-- Сейчас серверного входа нет: роль «бизнес/модератор/админ» для разработки включается только через `?debug` в адресе. Перед выкладкой этот режим убираем.
+## Role selection and why a school student cannot become a moderator
+- On first launch the user picks only: **student, school student, regular user**, or **"I represent a venue"**. Gender is optional.
+- **Moderator and admin are not selectable.** Their accounts are created by an admin only (invite or DB record), with password login (JWT) and later 2FA. The server never accepts a role from the client: the role comes from the token.
+- **Business:** a request (name, address, phone) goes to the `business_requests` table with status `pending` (3 requests per hour per address). A moderator verifies the venue exists and grants the role. Until then the person stays a regular user.
+- **Abuse protection:** Redis rate limits (already on deals, menus, reviews, requests); before public deployment, Cloudflare (free plan) and an HTTPS proxy go in front.
+- There is no server-side login yet: the venue/moderator/admin role is enabled for development only via `?debug` in the URL, which will be removed before deployment.
 
-## Отзывы
-Таблица `reviews` (оценка 1–5, текст до 500 символов, статус visible/hidden). Лимит 5 отзывов в минуту. Скрывать отзывы будет модератор (кабинет, следующий шаг). Пока вход не сделан, имя автора берётся из профиля на устройстве.
+## Reviews
+The `reviews` table (rating 1-5, text up to 500 characters, status visible/hidden). Limit: 5 reviews per minute. Moderators will hide reviews (dashboard, next step). Until login exists, the author name comes from the profile stored on the device.

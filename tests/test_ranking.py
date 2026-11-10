@@ -1,4 +1,4 @@
-"""Тесты ранжирования (формула: 0.35·скидка + 0.25·дешевизна + 0.25·близость + 0.15·апвоуты)."""
+"""Ranking tests (formula: 0.35*discount + 0.25*cheapness + 0.25*proximity + 0.15*upvotes)."""
 import unittest
 
 from app import ranking
@@ -13,7 +13,7 @@ def deal(**kw):
 
 class RankingTests(unittest.TestCase):
     def test_formula(self):
-        # скидка 20%, бюджет 1600 -> дешевизна 0.5, вплотную к пользователю -> близость 1, 25 апвоутов -> 0.5
+        # 20% discount, budget 1600 -> cheapness 0.5, right next to the user -> proximity 1, 25 upvotes -> 0.5
         d = ranking.enrich([deal(upvotes=25)], radius=1000, budget=1600)[0]
         self.assertEqual(d["discount_pct"], 20)
         self.assertAlmostEqual(d["score"], 100 * (0.35 * 0.2 + 0.25 * 0.5 + 0.25 * 1 + 0.15 * 0.5), places=1)

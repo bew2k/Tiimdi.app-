@@ -584,7 +584,7 @@
             }
           ]
         },
-        "description": "Если ИИ выключен, недоступен или исчерпан лимит, ответ всё равно 200, а advice_source = rules."
+        "description": "If AI is disabled, unavailable or the limit is exhausted, the response is still 200 and advice_source = rules."
       },
       "event": [
         {
@@ -707,7 +707,7 @@
       ]
     },
     {
-      "name": "19. Menu from photo (ручной: выберите файл)",
+      "name": "19. Menu from photo (manual: choose a file)",
       "request": {
         "method": "POST",
         "header": [],
@@ -731,7 +731,7 @@
             }
           ]
         },
-        "description": "В Body → file выберите фото меню (JPEG/PNG/WebP до 5 МБ). Без файла вернётся 422 — это нормально."
+        "description": "In Body → file, choose a menu photo (JPEG/PNG/WebP, up to 5 MB). Without a file the response is 422, which is expected."
       },
       "event": [
         {

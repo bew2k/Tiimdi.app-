@@ -1,9 +1,9 @@
-"""Тесты ИИ-слоя без сети: настоящий HTTP-клиент подменяется заглушкой.
+"""Offline tests for the AI layer: the real HTTP client is replaced with a stub.
 
-Проверяют сценарии из раздела «если ИИ недоступен»: таймаут, исчерпан лимит, неверный ключ,
-выключатель, запасной провайдер, дневной потолок, мусор в ответе модели.
+Cover the "AI unavailable" scenarios: timeout, exhausted quota, invalid key,
+circuit breaker, fallback provider, daily cap, garbage in the model response.
 
-Запуск из корня проекта:  python -m unittest discover -s tests -v
+Run from the project root:  python -m unittest discover -s tests -v
 """
 import logging
 import unittest
@@ -52,7 +52,7 @@ DEAL = {"title": "Комбо", "venue_name": "Донерная", "price": 800, "
 
 class AITestCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        logging.disable(logging.CRITICAL)             # в тестах ожидаемые ошибки не засоряют вывод
+        logging.disable(logging.CRITICAL)             # expected errors do not clutter test output
         self._client, self._providers = ai.httpx.AsyncClient, ai.get_providers
         ai.httpx.AsyncClient = FakeClient
         FakeClient.script, FakeClient.calls = [], []
@@ -91,7 +91,7 @@ class ProviderTests(AITestCase):
         with self.assertRaises(ai.AIError) as cm2:
             await self.primary.chat("s", "u")
         self.assertEqual(cm2.exception.status, 503)
-        self.assertEqual(len(FakeClient.calls), 1)          # второй вызов не дошёл до сети
+        self.assertEqual(len(FakeClient.calls), 1)          # the second call never reached the network
 
     async def test_retry_after_is_clamped(self):
         FakeClient.script = [FakeResp(429, {}, {"retry-after": "999999"})]

@@ -5,14 +5,14 @@ services:
       POSTGRES_USER: tiimdi
       POSTGRES_PASSWORD: tiimdi
       POSTGRES_DB: tiimdi
-    # Порты БД и Redis наружу НЕ публикуем: API ходит к ним по внутренней сети Docker.
-    # (Для psql с хоста раскомментируйте, но на сервере в интернете этого делать нельзя.)
+    # DB and Redis ports are NOT published: the API reaches them over the internal Docker network.
+    # (Uncomment for psql from the host, but never do this on an internet-facing server.)
     # ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # -h 127.0.0.1 обязателен: при первом старте Postgres сначала поднимает временный сервер
-      # только на unix-сокете. Без -h проверка проходила рано, и API падал с "Connection refused".
+      # -h 127.0.0.1 is required: on first start Postgres briefly runs a temporary server
+      # on the unix socket only. Without -h the check passed too early and the API failed with "Connection refused".
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U tiimdi -d tiimdi"]
       interval: 3s
       timeout: 3s

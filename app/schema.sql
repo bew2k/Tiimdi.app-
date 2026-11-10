@@ -10,10 +10,10 @@ CREATE TABLE IF NOT EXISTS venues (
     created_at  TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE venues ADD COLUMN IF NOT EXISTS photo_url TEXT;
-ALTER TABLE venues ADD COLUMN IF NOT EXISTS menu_photo_url TEXT;   -- фото бумажного меню
+ALTER TABLE venues ADD COLUMN IF NOT EXISTS menu_photo_url TEXT;   -- photo of the paper menu
 ALTER TABLE venues ADD COLUMN IF NOT EXISTS hours TEXT;           -- '08:00-20:00'
 ALTER TABLE venues ADD COLUMN IF NOT EXISTS phone TEXT;
-ALTER TABLE venues ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false;   -- подтверждено модератором
+ALTER TABLE venues ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false;   -- confirmed by a moderator
 -- GiST (R-Tree) index makes ST_DWithin fast
 CREATE INDEX IF NOT EXISTS venues_geom_gix ON venues USING GIST (geom);
 
@@ -48,17 +48,17 @@ CREATE TABLE IF NOT EXISTS reviews (
     author      TEXT NOT NULL,
     rating      INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
     body        TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'visible',      -- visible | hidden (модератор)
+    status      TEXT NOT NULL DEFAULT 'visible',      -- visible | hidden (moderator)
     created_at  TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS reviews_venue_idx ON reviews(venue_id);
--- один отзыв на заведение с одного устройства (повторная отправка заменяет прежний)
+-- one review per venue per device (resubmitting replaces the previous one)
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS author_key TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS reviews_one_per_author ON reviews(venue_id, author_key);
--- исходный рейтинг заведения: итоговый рейтинг сглаживается отзывами, один отзыв его почти не меняет
+-- base venue rating: the final rating is smoothed by reviews, a single review barely changes it
 ALTER TABLE venues ADD COLUMN IF NOT EXISTS base_rating NUMERIC(2,1);
 
--- заявки заведений: роль «бизнес» выдаёт только модератор после проверки
+-- venue applications: the "business" role is granted only by a moderator after review
 CREATE TABLE IF NOT EXISTS business_requests (
     id            SERIAL PRIMARY KEY,
     venue_name    TEXT NOT NULL,

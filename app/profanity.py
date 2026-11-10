@@ -1,8 +1,8 @@
-"""Фильтр нецензурных слов для отзывов (русский, казахский, английский).
+"""Profanity filter for reviews (Russian, Kazakh, English).
 
-Это базовая защита без внешних сервисов. Слова проверяются по началу слова (с учётом приставок), поэтому
-«скипидар» или «бледный» проходят. Замены букв (латиница похожа на кириллицу, цифры, повторы) учитываются.
-Список можно дополнять в RU / KK / EN ниже. Полностью исключить обход нельзя: дальше помогает модерация.
+This is basic protection with no external services. Words are matched by their beginning (allowing for prefixes), so
+"скипидар" or "бледный" pass. Letter substitutions (Latin look-alikes of Cyrillic, digits, repeats) are accounted for.
+The lists can be extended in RU / KK / EN below. Evasion cannot be ruled out entirely: moderation helps beyond that.
 """
 import re
 
@@ -25,10 +25,10 @@ EN = [re.compile(p) for p in (
     r"^f+u+c+k", r"^sh[i1]+t", r"^b[i1]tch", r"^cunt", r"^asshole", r"^nigg", r"^whore", r"^slut",
     r"^dick(?!ens)", r"^pussy", r"^bastard", r"^motherf",
 )]
-# сильные корни ловим и в «слепленном» тексте без пробелов («х у й», «п-и-з-д-а»)
+# strong roots are also caught in "glued" text without spaces ("х у й", "п-и-з-д-а")
 _STRONG = ("хуй", "пизд", "бляд", "залуп", "гандон", "fuck")
 
-# русский мат, написанный латиницей («blyadskoe», «yebanov», «huy»): переводим в кириллицу и проверяем так же
+# Russian profanity written in Latin letters ("blyadskoe", "yebanov", "huy"): transliterate to Cyrillic and check the same way
 _TL_MULTI = (("shch", "щ"), ("sch", "щ"), ("zh", "ж"), ("kh", "х"), ("ch", "ч"), ("sh", "ш"), ("ts", "ц"),
              ("yu", "ю"), ("ya", "я"), ("yo", "е"), ("ye", "е"), ("ju", "ю"), ("ja", "я"), ("jo", "е"), ("iu", "ю"), ("ia", "я"))
 _TL_ONE = dict(a="а", b="б", c="к", d="д", e="е", f="ф", g="г", h="х", i="и", j="й", k="к", l="л", m="м", n="н",

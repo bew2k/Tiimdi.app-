@@ -1,20 +1,20 @@
-"""ИИ-слой Tiimdi. Провайдер меняется в .env, код трогать не нужно.
+"""Tiimdi AI layer. The provider is switched in .env; no code changes needed.
 
-  AI_PROVIDER=mock            без интернета и ключей (демо и тесты)
-  AI_PROVIDER=openai_compat   любой сервис со стандартным API чата: Gemini, OpenRouter,
-                              Groq, Qwen, локальный Ollama... Меняются только
+  AI_PROVIDER=mock            no internet or keys needed (demo and tests)
+  AI_PROVIDER=openai_compat   any service with a standard chat API: Gemini, OpenRouter,
+                              Groq, Qwen, a local Ollama... Only these change:
                               AI_BASE_URL, AI_API_KEY и AI_MODEL.
 
-Что происходит при сбоях (раздел «если ИИ недоступен» в документации):
-  1. Основной провайдер не ответил / лимит исчерпан / неверный ключ -> «выключатель» отключает
-     его на несколько минут (повторные запросы не ждут таймаут), пробуется запасной провайдер
-     (AI_FALLBACK_*), если он настроен.
-  2. Если ИИ недоступен совсем, /recommend молча отдаёт совет по правилам (app/ranking.py),
-     а /menu/extract возвращает понятную ошибку, и позиции можно ввести вручную.
-  3. Дневной потолок вызовов (AI_DAILY_LIMIT) защищает бесплатный лимит и токены.
-  4. Одинаковые запросы не доходят до ИИ: ответы кешируются в Redis.
+What happens on failures (see the "if the AI is unavailable" section of the docs):
+  1. Primary provider did not respond / quota exhausted / invalid key -> the circuit breaker disables
+     it for a few minutes (repeat requests do not wait for the timeout), and the fallback provider
+     (AI_FALLBACK_*) is tried, if configured.
+  2. If the AI is completely unavailable, /recommend silently returns a rule-based tip (app/ranking.py),
+     while /menu/extract returns a clear error, and items can be entered manually.
+  3. A daily call cap (AI_DAILY_LIMIT) protects the free quota and tokens.
+  4. Identical requests never reach the AI: responses are cached in Redis.
 
-Проверка связи:  docker compose exec api python -m app.ai [путь/к/фото_меню.jpg]
+Connectivity check:  docker compose exec api python -m app.ai [path/to/menu_photo.jpg]
 """
 import base64
 import json
@@ -51,7 +51,7 @@ EXPLAIN_SYSTEM = (
 
 
 class AIError(Exception):
-    """Понятная пользователю ошибка ИИ. status — HTTP-код для ответа API."""
+    """User-friendly AI error. status is the HTTP code for the API response."""
     def __init__(self, message: str, status: int = 502):
         super().__init__(message)
         self.status = status
@@ -86,7 +86,7 @@ class MenuItem(BaseModel):
 
 # ---------------------------------------------------------------- providers
 class MockProvider:
-    """Заглушка: работает без интернета, возвращает пример ответа."""
+    """Stub: works offline and returns a sample response."""
     role, name, model, vision, configured = "primary", "mock", "mock", True, True
 
     async def chat(self, system: str, user: str, image=None) -> str:
@@ -102,7 +102,7 @@ class MockProvider:
 
 
 def _retry_after(headers) -> int | None:
-    """Заголовок Retry-After в секундах (если он числом), ограничен 30 с ... 1 час."""
+    """Retry-After header in seconds (if numeric), clamped to 30 s ... 1 hour."""
     try:
         v = int(float(headers.get("retry-after", "")))
     except (ValueError, TypeError):
@@ -111,7 +111,7 @@ def _retry_after(headers) -> int | None:
 
 
 class OpenAICompat:
-    """Стандартный формат POST {base}/chat/completions (его понимают почти все сервисы)."""
+    """Standard POST {base}/chat/completions format (understood by almost all services)."""
 
     def __init__(self, role: str, base: str, api_key: str, model: str, vision: bool = True):
         self.role = role
@@ -130,7 +130,7 @@ class OpenAICompat:
     async def chat(self, system: str, user: str, image=None) -> str:
         if not self.configured:
             raise AIError("ИИ не настроен: заполните AI_BASE_URL и AI_MODEL в .env", 503)
-        if self.breaker.is_open:        # недавно был сбой: не ждём таймаут, сразу к запасному варианту
+        if self.breaker.is_open:        # recent failure: skip the timeout and go straight to the fallback
             raise AIError(f"ИИ временно недоступен ({self.breaker.reason}), повтор через {self.breaker.remaining} с", 503)
         if not await self.quota.take():
             raise AIError("Дневной лимит вызовов ИИ исчерпан, попробуйте завтра", 429)
@@ -143,7 +143,7 @@ class OpenAICompat:
         body = {"model": self.model, "temperature": 0.2,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_content}]}
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        timeout = AI_TIMEOUT if image else AI_TEXT_TIMEOUT      # совет должен быть быстрым, фото можно ждать дольше
+        timeout = AI_TIMEOUT if image else AI_TEXT_TIMEOUT      # a tip must be fast; photos can wait longer
         try:
             async with httpx.AsyncClient(timeout=timeout) as c:
                 r = await c.post(f"{self.base}/chat/completions", json=body, headers=headers)
@@ -168,14 +168,14 @@ class OpenAICompat:
             content = r.json()["choices"][0]["message"]["content"]
         except (KeyError, IndexError, ValueError, TypeError):
             raise AIError("Неожиданный ответ ИИ", 502)
-        if isinstance(content, list):                    # некоторые сервисы отдают ответ списком частей
+        if isinstance(content, list):                    # some services return the answer as a list of parts
             content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
         return content if isinstance(content, str) else ""
 
 
 @lru_cache
 def get_providers() -> list:
-    """Цепочка провайдеров: основной, затем (если настроен) запасной."""
+    """Provider chain: primary, then the fallback (if configured)."""
     if AI_PROVIDER != "openai_compat":
         return [MockProvider()]
     chain = [OpenAICompat("primary", AI_BASE_URL, AI_API_KEY, AI_MODEL, vision=True)]
@@ -190,13 +190,13 @@ def get_provider():
 
 
 def cache_tag() -> str:
-    """Часть ключа кеша: ответы разных моделей (и заглушки mock) не должны подменять друг друга."""
+    """Part of the cache key: responses from different models (and the mock stub) must not replace each other."""
     p = get_provider()
     return f"{p.name}:{p.model}"
 
 
 async def _chat(system: str, user: str, image=None):
-    """Пробует провайдеров по очереди. Возвращает (текст, провайдер) или бросает AIError."""
+    """Tries providers in order. Returns (text, provider) or raises AIError."""
     providers = [p for p in get_providers() if p.vision or not image]
     if not providers:
         raise AIError("Нет ИИ-провайдера, который умеет читать фото", 503)
@@ -207,14 +207,14 @@ async def _chat(system: str, user: str, image=None):
         except AIError as e:
             last = e
             log.warning("ИИ-провайдер %s: %s", p.role, e)
-        except Exception:                                # любой неожиданный сбой не должен ронять API
+        except Exception:                                # no unexpected failure should bring the API down
             log.exception("Неожиданная ошибка ИИ-провайдера %s", p.role)
             last = AIError("Внутренняя ошибка ИИ", 502)
     raise last
 
 
 async def status() -> dict:
-    """Состояние для /health и /ai/status. Ключи и адреса не показываем."""
+    """State for /health and /ai/status. Keys and addresses are not exposed."""
     rows = []
     for p in get_providers():
         row = {"role": p.role, "name": p.name, "model": p.model, "configured": p.configured, "vision": p.vision}
@@ -241,7 +241,7 @@ def _parse_json(text: str):
 
 
 async def extract_menu(image: bytes, mime: str) -> dict:
-    """Фото меню -> список позиций. Ответ модели считаем недоверенным: проверяем схемой."""
+    """Menu photo -> list of items. The model output is treated as untrusted: validated against a schema."""
     raw, p = await _chat(MENU_SYSTEM, "Вот фото меню. Верни JSON.", image=(mime, image))
     data = _parse_json(raw)
     rows = data.get("items", []) if isinstance(data, dict) else data
@@ -263,7 +263,7 @@ async def extract_menu(image: bytes, mime: str) -> dict:
 
 
 async def explain(deals: list[dict], budget: int | None) -> str:
-    """Короткое объяснение выбора. Ранжирует код, ИИ только объясняет готовый топ."""
+    """Short explanation of the choice. Code does the ranking; the AI only explains the finished top."""
     facts = [{"акция": d["title"][:100], "заведение": d["venue_name"][:100], "цена_тг": d["price"],
               "была_тг": d["old_price"], "скидка_%": d["discount_pct"], "метров": d["distance_m"],
               "подтверждений": d["upvotes"]} for d in deals[:3]]

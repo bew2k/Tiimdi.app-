@@ -1,6 +1,6 @@
-"""Redis helpers. Если Redis недоступен, API продолжает работать без кеша.
+"""Redis helpers. If Redis is unavailable, the API keeps working without a cache.
 
-Если Redis не отвечает, 10 секунд не пытаемся к нему обращаться (иначе каждый запрос ждал бы таймаут).
+If Redis does not respond, we do not try it again for 10 seconds (otherwise every request would wait for the timeout).
 """
 import json
 import logging
@@ -17,7 +17,7 @@ _down = Breaker()
 
 
 def _client():
-    """Клиент Redis или None, если он недавно не отвечал."""
+    """Redis client, or None if it recently failed to respond."""
     return None if (r is None or _down.is_open) else r
 
 
@@ -43,7 +43,7 @@ async def close_cache() -> None:
 
 
 async def ping() -> bool:
-    """Для /health: отвечает ли Redis прямо сейчас."""
+    """For /health: whether Redis responds right now."""
     if r is None:
         return False
     try:
@@ -105,10 +105,10 @@ async def first_time(key: str, ttl: int = 86400) -> bool:
 
 
 async def incr_ttl(key: str, ttl: int) -> int | None:
-    """Счётчик со сроком жизни. Возвращает новое значение или None, если Redis недоступен.
+    """Counter with a time to live. Returns the new value, or None if Redis is unavailable.
 
-    Если ключ по какой-то причине остался без срока жизни (TTL = -1), срок ставится заново,
-    так что «вечной» блокировки не бывает.
+    If the key somehow ended up without a TTL (TTL = -1), the TTL is set again,
+    so an "eternal" lock cannot occur.
     """
     c = _client()
     if not c:
@@ -145,7 +145,7 @@ async def rate_limit(key: str, limit: int, window: int = 60) -> bool:
 
 
 async def raw_get(key: str):
-    """Кеш без привязки к версии (для ответов ИИ: их не нужно сбрасывать при каждой записи)."""
+    """Cache not tied to a version (for AI responses: they need not be invalidated on every write)."""
     c = _client()
     if not c:
         return None

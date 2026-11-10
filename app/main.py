@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Tiimdi API",
-    description="Гео-агрегатор скидок на еду: PostGIS + Redis. Данные — мок из CSV.",
+    description="Food deals geo-aggregator: PostGIS + Redis. Data is mock data from CSV.",
     version="0.21.0",
     lifespan=lifespan,
 )
@@ -45,18 +45,18 @@ _DEVICE = re.compile(r"^[A-Za-z0-9-]{16,64}$")
 
 
 def author_key(request: Request) -> str:
-    """Кто оставил отзыв: идентификатор устройства из заголовка X-Device-Id, иначе адрес клиента.
-    Без входа в аккаунт это защита «от случайных повторов», а не от целенаправленной накрутки."""
+    """Who left the review: device ID from the X-Device-Id header, otherwise the client address.
+    Without account login this protects against accidental repeats, not against deliberate vote/review stuffing."""
     d = request.headers.get("x-device-id", "")
     return ("d:" + d) if _DEVICE.match(d) else "ip:" + client_id(request)
 
 
 def client_id(request: Request) -> str:
-    """Идентификатор клиента для лимитов и апвоутов.
+    """Client identifier for rate limits and upvotes.
 
-    В Docker и за прокси все запросы приходят через прокси, и request.client.host у всех один и тот же:
-    без этого «1 апвоут в сутки» и «10 акций в минуту» действовали бы сразу на всех пользователей.
-    Берём последний адрес из X-Forwarded-For: его дописывает наш прокси, подделать его клиент не может.
+    In Docker and behind a proxy all requests arrive via the proxy, so request.client.host is the same for everyone:
+    without this, "1 upvote per day" and "10 deals per minute" would apply to all users at once.
+    We take the last address from X-Forwarded-For: our proxy appends it, so the client cannot forge it.
     """
     if TRUST_PROXY:
         xff = request.headers.get("x-forwarded-for", "")
@@ -66,8 +66,8 @@ def client_id(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-Lat = Query(..., ge=-90, le=90, description="Широта, напр. 43.2352")
-Lon = Query(..., ge=-180, le=180, description="Долгота, напр. 76.9094")
+Lat = Query(..., ge=-90, le=90, description="Latitude, e.g. 43.2352")
+Lon = Query(..., ge=-180, le=180, description="Longitude, e.g. 76.9094")
 
 
 async def _ranked(lat, lon, radius, category, max_price, sort, limit, budget=None):
@@ -89,12 +89,12 @@ async def health():
     return {"status": "ok", "redis": await cache.ping(), "ai": await ai.status()}
 
 
-@app.get("/deals/nearby", tags=["deals"], summary="Скидки в радиусе (PostGIS ST_DWithin)")
+@app.get("/deals/nearby", tags=["deals"], summary="Deals within a radius (PostGIS ST_DWithin)")
 async def deals_nearby(
     lat: float = Lat, lon: float = Lon,
-    radius: int = Query(500, ge=50, le=5000, description="метры"),
+    radius: int = Query(500, ge=50, le=5000, description="meters"),
     category: Category | None = None,
-    max_price: int | None = Query(None, ge=0, description="₸, фильтр «до 1000 ₸»"),
+    max_price: int | None = Query(None, ge=0, description="₸, filter such as 'up to 1000 ₸'"),
     sort: Sort = "best",
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -102,18 +102,18 @@ async def deals_nearby(
     return {"count": len(deals), "cached": cached, "items": deals}
 
 
-@app.get("/deals/trending", tags=["deals"], summary="Trending nearby — топ по рейтингу выгоды")
+@app.get("/deals/trending", tags=["deals"], summary="Trending nearby: top by value score")
 async def trending(lat: float = Lat, lon: float = Lon,
                    radius: int = Query(1000, ge=50, le=5000), limit: int = Query(5, ge=1, le=20)):
     deals, cached = await _ranked(lat, lon, radius, None, None, "best", limit)
     return {"count": len(deals), "cached": cached, "items": deals}
 
 
-@app.get("/recommend", tags=["deals"], summary="Совет «что взять за свой бюджет» (правила, опционально ИИ)")
+@app.get("/recommend", tags=["deals"], summary="Advice on 'what to get for your budget' (rules, optionally AI)")
 async def recommend(lat: float = Lat, lon: float = Lon,
                     budget: int = Query(1200, ge=100, description="₸"),
                     radius: int = Query(1000, ge=50, le=5000),
-                    use_ai: bool = Query(False, alias="ai", description="Объяснение от ИИ (кешируется в Redis)")):
+                    use_ai: bool = Query(False, alias="ai", description="Explanation from AI (cached in Redis)")):
     deals, cached = await _ranked(lat, lon, radius, None, budget, "best", 3, budget)
     if not deals:
         return {"advice": "В этом радиусе нет акций под ваш бюджет — попробуйте увеличить радиус.",
@@ -128,10 +128,10 @@ async def recommend(lat: float = Lat, lon: float = Lon,
                 text = await ai.explain(deals, budget)
                 await cache.raw_set(key, text, ttl=600)
             except ai.AIError:
-                text = None                       # ИИ упал -> молча остаёмся на правилах
+                text = None                       # AI failed -> silently fall back to the rules
             except Exception:
                 log.exception("Сбой при получении совета от ИИ")
-                text = None                       # что бы ни случилось, совет по правилам всё равно отдаём
+                text = None                       # whatever happens, we still return the rule-based advice
         if text:
             advice, source = text, "ai"
     return {"advice": advice, "items": deals, "cached": cached, "advice_source": source}
@@ -171,20 +171,20 @@ class DealIn(BaseModel):
     ends_at: datetime | None = None
 
 
-@app.post("/venues", status_code=201, tags=["venues"], summary="Заведение регистрируется (холодный старт)")
+@app.post("/venues", status_code=201, tags=["venues"], summary="Venue registers (cold start)")
 async def add_venue(v: VenueIn):
     created = await db.create_venue(v.name, v.category, v.address, v.lat, v.lon)
     await cache.invalidate()
     return created
 
 
-@app.post("/deals", status_code=201, tags=["deals"], summary="Заведение добавляет скидку")
+@app.post("/deals", status_code=201, tags=["deals"], summary="Venue adds a deal")
 async def add_deal(body: DealIn, request: Request):
     if body.old_price is not None and body.old_price < body.price:
         raise HTTPException(422, "old_price must be >= price")
     ends_at = body.ends_at
     if ends_at is not None:
-        if ends_at.tzinfo is None:                  # время без пояса считаем UTC
+        if ends_at.tzinfo is None:                  # a time without a timezone is treated as UTC
             ends_at = ends_at.replace(tzinfo=timezone.utc)
         if ends_at <= datetime.now(timezone.utc):
             raise HTTPException(422, "ends_at must be in the future")
@@ -199,7 +199,7 @@ async def add_deal(body: DealIn, request: Request):
     return d
 
 
-@app.post("/deals/{deal_id}/upvote", tags=["deals"], summary="Подтвердить цену (1 раз в сутки с клиента)")
+@app.post("/deals/{deal_id}/upvote", tags=["deals"], summary="Confirm the price (once per day per client)")
 async def upvote(deal_id: int, request: Request):
     ip = client_id(request)
     if not await cache.first_time(f"uv:{deal_id}:{ip}"):
@@ -230,7 +230,7 @@ async def ai_status():
     return await ai.status()
 
 
-@app.post("/menu/extract", tags=["ai"], summary="Фото меню -> список позиций (ничего не сохраняет)")
+@app.post("/menu/extract", tags=["ai"], summary="Menu photo -> list of items (saves nothing)")
 async def menu_extract(request: Request, file: UploadFile = File(...)):
     ip = client_id(request)
     if not await cache.rate_limit(f"rl:menu:{ip}", limit=5, window=60):
@@ -239,7 +239,7 @@ async def menu_extract(request: Request, file: UploadFile = File(...)):
     if len(data) > MAX_IMG:
         raise HTTPException(413, "Файл больше 5 МБ")
     mime = _sniff(data)
-    if mime not in IMG_TYPES:                    # доверяем содержимому, а не расширению
+    if mime not in IMG_TYPES:                    # trust the content, not the file extension
         raise HTTPException(415, "Нужно фото JPEG, PNG или WebP")
     key = f"ai:menu:{ai.cache_tag()}:{hashlib.sha256(data).hexdigest()}"
     hit = await cache.raw_get(key)
@@ -264,7 +264,7 @@ class MenuIn(BaseModel):
     replace: bool = False
 
 
-@app.post("/venues/{venue_id}/menu", status_code=201, tags=["venues"], summary="Сохранить меню заведения")
+@app.post("/venues/{venue_id}/menu", status_code=201, tags=["venues"], summary="Save the venue's menu")
 async def save_menu(venue_id: int, body: MenuIn):
     cats = ai.MENU_CATEGORIES
     rows = [(i.name.strip(), i.price, i.category if i.category in cats else "other") for i in body.items]
@@ -291,7 +291,7 @@ async def venue_reviews(venue_id: int):
     return await db.get_reviews(venue_id)
 
 
-@app.post("/venues/{venue_id}/reviews", status_code=201, tags=["reviews"], summary="Оставить отзыв")
+@app.post("/venues/{venue_id}/reviews", status_code=201, tags=["reviews"], summary="Leave a review")
 async def add_review(venue_id: int, body: ReviewIn, request: Request, response: Response):
     if not await cache.rate_limit(f"rl:review:{client_id(request)}", limit=5, window=60):
         raise HTTPException(429, "Слишком часто, подождите минуту")
@@ -303,7 +303,7 @@ async def add_review(venue_id: int, body: ReviewIn, request: Request, response: 
     r = await db.create_review(venue_id, body.author.strip(), body.rating, body.body.strip(), key)
     if r is None:
         raise HTTPException(404, "Venue not found")
-    await cache.invalidate()                      # рейтинг заведения изменился: сбрасываем кеш выдачи
+    await cache.invalidate()                      # the venue's rating changed: invalidate the results cache
     response.status_code = 200 if r["updated"] else 201
     return r
 
@@ -317,7 +317,7 @@ class BizRequestIn(BaseModel):
 
 
 @app.post("/business-requests", status_code=201, tags=["business"],
-          summary="Заявка заведения: роль «бизнес» выдаёт модератор после проверки")
+          summary="Venue application: the 'business' role is granted by a moderator after review")
 async def business_request(body: BizRequestIn, request: Request):
     if not await cache.rate_limit(f"rl:biz:{client_id(request)}", limit=3, window=3600):
         raise HTTPException(429, "Слишком много заявок, попробуйте позже")
